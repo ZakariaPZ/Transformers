@@ -24,10 +24,11 @@ class Encoder(nn.Module):
         super().__init__()
 
 
-
-
 class Decoder(nn.Module):
-    pass
+    def __init__(self) -> None:
+        super().__init__()
+
+        
 
 
 class EncoderBlock(nn.Module):
@@ -128,7 +129,6 @@ class attention(nn.Module):
         x_att = self.compute_attention(q, k, v, mask)
 
         return x_att
-
 
 class PositionwiseFFN(nn.Module):
     def __init__(self,
