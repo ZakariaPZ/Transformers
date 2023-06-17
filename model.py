@@ -17,6 +17,9 @@ class Transformer(nn.Module):
 # class Decoder(nn.Module):
 #     pass
 
+class LM_head(nn.Module):
+    pass
+
 class Encoder(nn.Module):
     def __init__(self,
                  N_encoder,
@@ -27,8 +30,6 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-
-        
 
 
 class EncoderBlock(nn.Module):
@@ -146,13 +147,30 @@ class PositionwiseFFN(nn.Module):
 
 
 class Embedding(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, 
+                 vocab_size,
+                 d_model):
         super().__init__()
-        self.embedding = nn.Embedding(...)
+        self.embedding = nn.Embedding(vocab_size, d_model)
 
     def forward(self, x):
         embeds = self.embedding(x)
         return embeds
+    
 
 class PositionalEmbedding(nn.Module):
-    pass
+    def __init__(self,
+                 d_model):
+        super().__init__()
+
+        self.pos_encodings = torch.zeros(20000, d_model)
+        positions = torch.arange(20000).unsqueeze(-1)
+        # Use log for numerical stability
+        denom = torch.exp(torch.log(10000) * (torch.arange(0, d_model, 2) / d_model)).unsqueeze(0) 
+
+        self.pos_encodings[::2] = torch.sin(positions/denom) # multiplication better?
+        self.pos_encodings[1::2] = torch.cos(positions/denom)
+
+    def forward(self, x):
+        x = x + self.pos_encodings[:, :x.size()[1]]
+        return x
