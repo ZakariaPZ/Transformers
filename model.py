@@ -5,20 +5,18 @@ import torch.functional as F
 class Transformer(nn.Module):
     pass
 
-# class Encoder(nn.Module):
-#     def __init__(self, encoder, decoder):
-    
-#         self.encoder = encoder
-        
-#     def forward(self, x):
-#         z = self.encoder(x)
-#         y = self.decoder(z, y_tm1)
-
-# class Decoder(nn.Module):
-#     pass
-
 class LM_head(nn.Module):
-    pass
+    def __init__(self,
+                 d_model,
+                 vocab_size):
+        super().__init__()
+        
+        self.linear = nn.Linear(d_model, vocab_size)
+
+    def forward(self, x):
+        logits = self.linear(x)
+        out = F.softmax(logits, -1)
+        return out          
 
 class Encoder(nn.Module):
     def __init__(self,
@@ -172,5 +170,5 @@ class PositionalEmbedding(nn.Module):
         self.pos_encodings[1::2] = torch.cos(positions/denom)
 
     def forward(self, x):
-        x = x + self.pos_encodings[:, :x.size()[1]]
+        x = x + self.pos_encodings[:, :x.size()[1]] # requires grad?
         return x
