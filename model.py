@@ -3,7 +3,32 @@ from torch import nn
 import torch.functional as F
 
 class Transformer(nn.Module):
-    pass
+    def __init__(self,
+                 d_model,
+                 h_dim,
+                 vocab_size,
+                 N_encoders,
+                 N_decoders):
+        super().__init__()
+
+        attention = Attention(d_model)
+        feedforward = PositionwiseFFN(d_model, h_dim)
+        norm = LayerNorm(d_model)
+
+        self.embedding = Embedding(vocab_size, d_model)
+
+        self.encoder = nn.Sequential([
+            EncoderBlock(feedforward, attention, norm) for i in range(N_encoders)
+        ])
+
+        self.decoder = nn.Sequential([
+            DecoderBlock(feedforward, attention, norm) for i in range(N_decoders)
+        ])
+
+        self.LM_head = LM_head(d_model, vocab_size)
+
+    def forward(self, x):
+        pass
 
 class LM_head(nn.Module):
     def __init__(self,
@@ -18,16 +43,18 @@ class LM_head(nn.Module):
         out = F.softmax(logits, -1)
         return out          
 
-class Encoder(nn.Module):
-    def __init__(self,
-                 N_encoder,
-                 N_decoder):
-        super().__init__()
+# class Encoder(nn.Module):
+#     def __init__(self,
+#                  N_encoders,
+#                  feedforward,
+#                  attention,
+#                  norm):
+#         super().__init__()
+        
 
-
-class Decoder(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
+# class Decoder(nn.Module):
+#     def __init__(self) -> None:
+#         super().__init__()
 
 
 class EncoderBlock(nn.Module):
@@ -94,7 +121,7 @@ class LayerNorm(nn.Module):
         x_norm = (x - mean)/(std + self.eps) * self.gamma + self.beta
         return x_norm
 
-class attention(nn.Module):
+class Attention(nn.Module):
     def __init__(self,
                  d_model):
         super().__init__()
