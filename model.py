@@ -1,6 +1,7 @@
 import torch
 from torch import nn
-import torch.functional as F
+import torch.nn.functional as F
+import math
 
 import copy
 
@@ -45,7 +46,7 @@ class LM_head(nn.Module):
 
     def forward(self, x):
         logits = self.linear(x)
-        out = F.softmax(logits, -1)
+        out = F.softmax(logits, -1) 
         return out          
 
 # class Encoder(nn.Module):
@@ -139,11 +140,10 @@ class Attention(nn.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         
-        h_dim = d_model/n_heads
+        h_dim = int(d_model/n_heads) # TODO: Make sure these are divisible - add check
 
-
-        self.reshape_for_mh = lambda x : x.view(batch_size, seq_len, n_heads, h_dim).permute(0, 2, 1, 3).view(-1, seq_len, h_dim) # B * n_heads, S, h_dim
-        self.undo_reshape_for_mh = lambda x : x.view(batch_size, n_heads, seq_len, h_dim).permute(0, 2, 1, 3).view(-1, seq_len, d_model) # B, S, h_dim * n_heads = B, S, d_model 
+        self.reshape_for_mh = lambda x : x.contiguous().view(batch_size, seq_len, n_heads, h_dim).permute(0, 2, 1, 3).contiguous().view(-1, seq_len, h_dim) # B * n_heads, S, h_dim
+        self.undo_reshape_for_mh = lambda x : x.contiguous().view(batch_size, n_heads, seq_len, h_dim).permute(0, 2, 1, 3).contiguous().view(-1, seq_len, d_model) # B, S, h_dim * n_heads = B, S, d_model 
 
         self.Q = nn.Linear(h_dim, h_dim) # input of size (B*n_heads, S, h_dim)
         self.K = nn.Linear(h_dim, h_dim)
@@ -153,7 +153,7 @@ class Attention(nn.Module):
         # Implment softmax(QK^T/sqrt(d_k))V
         d_k = k.shape[-1]
 
-        M = torch.bmm(q, k.mT)/torch.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
+        M = torch.bmm(q, k.mT)/math.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
 
         # Mask should only be used for decoder 
         if mask: # mask of shape (S, S)
