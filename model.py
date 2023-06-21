@@ -140,7 +140,10 @@ class Attention(nn.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         
-        h_dim = int(d_model/n_heads) # TODO: Make sure these are divisible - add check
+        if d_model%n_heads != 0:
+            raise ValueError('d_model must divide evenly into n_heads')
+        
+        h_dim = int(d_model/n_heads)
 
         self.reshape_for_mh = lambda x : x.contiguous().view(batch_size, seq_len, n_heads, h_dim).permute(0, 2, 1, 3).contiguous().view(-1, seq_len, h_dim) # B * n_heads, S, h_dim
         self.undo_reshape_for_mh = lambda x : x.contiguous().view(batch_size, n_heads, seq_len, h_dim).permute(0, 2, 1, 3).contiguous().view(-1, seq_len, d_model) # B, S, h_dim * n_heads = B, S, d_model 
