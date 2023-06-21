@@ -2,6 +2,8 @@ import torch
 from torch import nn
 import torch.functional as F
 
+import copy
+
 class Transformer(nn.Module):
     def __init__(self,
                  d_model,
@@ -10,6 +12,8 @@ class Transformer(nn.Module):
                  N_encoders,
                  N_decoders):
         super().__init__()
+
+        copy_mod = copy.deepcopy
 
         attention = Attention(d_model)
         feedforward = PositionwiseFFN(d_model, h_dim)
@@ -29,6 +33,7 @@ class Transformer(nn.Module):
 
     def forward(self, x):
         pass
+
 
 class LM_head(nn.Module):
     def __init__(self,
@@ -123,36 +128,54 @@ class LayerNorm(nn.Module):
 
 class Attention(nn.Module):
     def __init__(self,
-                 d_model):
+                 batch_size,
+                 seq_len,
+                 d_model, 
+                 n_heads):
         super().__init__()
 
+        self.batch_size = batch_size
+        self.seq_len = seq_len # max seq. length
         self.d_model = d_model
+        self.n_heads = n_heads
+        
+        h_dim = d_model/n_heads
 
-        self.Q = nn.Linear(d_model, d_model) # input of size (B, S, d_model)
-        self.K = nn.Linear(d_model, d_model)
-        self.V = nn.Linear(d_model, d_model)
+
+        self.reshape_for_mh = lambda x : x.view(batch_size, seq_len, n_heads, h_dim).permute(0, 2, 1, 3).view(-1, seq_len, h_dim) # B * n_heads, S, h_dim
+        self.undo_reshape_for_mh = lambda x : x.view(batch_size, n_heads, seq_len, h_dim).permute(0, 2, 1, 3).view(-1, seq_len, d_model) # B, S, h_dim * n_heads = B, S, d_model 
+
+        self.Q = nn.Linear(h_dim, h_dim) # input of size (B*n_heads, S, h_dim)
+        self.K = nn.Linear(h_dim, h_dim)
+        self.V = nn.Linear(h_dim, h_dim)
     
     def compute_attention(self, q, k, v, mask):
         # Implment softmax(QK^T/sqrt(d_k))V
         d_k = k.shape[-1]
 
-        M = torch.matmul(q, k.mT)/torch.sqrt(d_k) # (B, S, d_model) x (B, d_model, S) = (B, S, S)
+        M = torch.bmm(q, k.mT)/torch.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
 
         # Mask should only be used for decoder 
-        if mask:
+        if mask: # mask of shape (S, S)
             M += mask
         weights = F.softmax(M, -1)
 
-        x_att = torch.matmul(weights, v) # (B, S, S) x (B, S, d_model) = (B, S, d_model)
+        x_att = torch.bmm(weights, v) # (B*n_heads, S, S) x (B*n_heads, S, h_dim) = (B*n_heads, S, h_dim)
     
         return x_att
  
     def forward(self, query, key, value, mask=None):
+        query = self.reshape_for_mh(query)
+        key = self.reshape_for_mh(key)
+        value = self.reshape_for_mh(value)
+
         q = self.Q(query)
         k = self.K(key)
         v = self.V(value)
 
         x_att = self.compute_attention(q, k, v, mask)
+
+        x_att = self.undo_reshape_for_mh(x_att) 
 
         return x_att
 
