@@ -140,18 +140,35 @@ class Attention(nn.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         
-        if d_model%n_heads != 0:
-            raise ValueError('d_model must divide evenly into n_heads')
+        assert d_model%n_heads == 0, 'Embedding dimension d_model must divide evenly into n_heads'
         
         h_dim = int(d_model/n_heads)
 
-        self.reshape_for_mh = lambda x : x.contiguous().view(batch_size, seq_len, n_heads, h_dim).permute(0, 2, 1, 3).contiguous().view(-1, seq_len, h_dim) # B * n_heads, S, h_dim
-        self.undo_reshape_for_mh = lambda x : x.contiguous().view(batch_size, n_heads, seq_len, h_dim).permute(0, 2, 1, 3).contiguous().view(-1, seq_len, d_model) # B, S, h_dim * n_heads = B, S, d_model 
-
-        self.Q = nn.Linear(h_dim, h_dim) # input of size (B*n_heads, S, h_dim)
-        self.K = nn.Linear(h_dim, h_dim)
-        self.V = nn.Linear(h_dim, h_dim)
+        self.Q = nn.Linear(d_model, h_dim*n_heads) # input of size (B, S, d_model)
+        self.K = nn.Linear(d_model, h_dim*n_heads)
+        self.V = nn.Linear(d_model, h_dim*n_heads)
     
+    def reshape_for_mh(self, x):
+        n_batches = x.shape[0]
+        seq_len = x.shape[1]
+
+        x = x.contiguous().view(n_batches, seq_len, self.n_heads, self.h_dim)
+        x = x.permute(0, 2, 1, 3)
+        x = x.contiguous().view(n_batches*self.n_heads, seq_len, self.h_dim)
+
+        return x
+
+    def undo_reshape_for_mh(self, x):
+        n_batches = int(x.shape[0]/self.n_heads)
+        seq_len = x.shape[1]
+
+        x = x.contiguous().view(n_batches, self.n_heads, seq_len, self.h_dim)
+
+        x = x.permute(0, 2, 1, 3)
+        x = x.contiguous().view(n_batches, seq_len, self.n_heads*self.h_dim) # B, S, h_dim * n_heads = B, S, d_model 
+
+        return x
+
     def compute_attention(self, q, k, v, mask):
         # Implment softmax(QK^T/sqrt(d_k))V
         d_k = k.shape[-1]
@@ -168,17 +185,17 @@ class Attention(nn.Module):
         return x_att
  
     def forward(self, query, key, value, mask=None):
-        query = self.reshape_for_mh(query)
-        key = self.reshape_for_mh(key)
-        value = self.reshape_for_mh(value)
 
         q = self.Q(query)
         k = self.K(key)
-        v = self.V(value)
+        v = self.V(value) # shape B, S, h_dim*n_heads
 
-        x_att = self.compute_attention(q, k, v, mask)
+        q = self.reshape_for_mh(q)
+        k =  self.reshape_for_mh(k)
+        v = self.reshape_for_mh(v) # shape B*n_heads, S, h_dim
 
-        x_att = self.undo_reshape_for_mh(x_att) 
+        x_att = self.compute_attention(q, k, v, mask) # shape B*n_heads, S, h_dim
+        x_att = self.undo_reshape_for_mh(x_att) # shape B, S, h_dim*n_heads
 
         return x_att
 
