@@ -48,20 +48,7 @@ class LM_head(nn.Module):
         logits = self.linear(x)
         out = F.softmax(logits, -1) 
         return out          
-
-# class Encoder(nn.Module):
-#     def __init__(self,
-#                  N_encoders,
-#                  feedforward,
-#                  attention,
-#                  norm):
-#         super().__init__()
-        
-
-# class Decoder(nn.Module):
-#     def __init__(self) -> None:
-#         super().__init__()
-
+    
 
 class EncoderBlock(nn.Module):
     def __init__(self,
@@ -151,21 +138,24 @@ class Attention(nn.Module):
     def reshape_for_mh(self, x):
         n_batches = x.shape[0]
         seq_len = x.shape[1]
+        h_dim = int(self.d_model/self.n_heads)
 
-        x = x.contiguous().view(n_batches, seq_len, self.n_heads, self.h_dim)
+
+        x = x.contiguous().view(n_batches, seq_len, self.n_heads, h_dim)
         x = x.permute(0, 2, 1, 3)
-        x = x.contiguous().view(n_batches*self.n_heads, seq_len, self.h_dim)
+        x = x.contiguous().view(n_batches*self.n_heads, seq_len, h_dim)
 
         return x
 
     def undo_reshape_for_mh(self, x):
         n_batches = int(x.shape[0]/self.n_heads)
         seq_len = x.shape[1]
+        h_dim = int(self.d_model/self.n_heads)
 
-        x = x.contiguous().view(n_batches, self.n_heads, seq_len, self.h_dim)
+        x = x.contiguous().view(n_batches, self.n_heads, seq_len, h_dim)
 
         x = x.permute(0, 2, 1, 3)
-        x = x.contiguous().view(n_batches, seq_len, self.n_heads*self.h_dim) # B, S, h_dim * n_heads = B, S, d_model 
+        x = x.contiguous().view(n_batches, seq_len, self.n_heads*h_dim) # B, S, h_dim * n_heads = B, S, d_model 
 
         return x
 
@@ -198,6 +188,7 @@ class Attention(nn.Module):
         x_att = self.undo_reshape_for_mh(x_att) # shape B, S, h_dim*n_heads
 
         return x_att
+
 
 class PositionwiseFFN(nn.Module):
     def __init__(self,
