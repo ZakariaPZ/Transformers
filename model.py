@@ -227,14 +227,15 @@ class PositionalEmbedding(nn.Module):
                  d_model):
         super().__init__()
 
-        self.pos_encodings = torch.zeros(20000, d_model)
-        positions = torch.arange(20000).unsqueeze(-1)
-        # Use log for numerical stability
-        denom = torch.exp(torch.log(10000) * (torch.arange(0, d_model, 2) / d_model)).unsqueeze(0) 
+        self.pos_encodings = torch.zeros(5000, d_model)
+        positions = torch.arange(5000).unsqueeze(-1)
 
-        self.pos_encodings[::2] = torch.sin(positions/denom) # multiplication better?
-        self.pos_encodings[1::2] = torch.cos(positions/denom)
+        # Use log for numerical stability
+        denom = torch.exp(math.log(10000) * (torch.arange(0, d_model, 2) / d_model)).unsqueeze(0) 
+
+        self.pos_encodings[:, ::2] = torch.sin(positions/denom) # multiplication better?
+        self.pos_encodings[:, 1::2] = torch.cos(positions/denom)
 
     def forward(self, x):
-        x = x + self.pos_encodings[:, :x.size()[1]] # requires grad?
+        x = x + self.pos_encodings[:x.size()[1], :] # requires grad false? 
         return x
