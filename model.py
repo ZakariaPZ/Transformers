@@ -76,7 +76,7 @@ class DecoderBlock(nn.Module):
                  feedforward,
                  attention,
                  norm,
-                 mask):
+                 mask = None):
         super().__init__()
 
         self.feedforward = feedforward
@@ -113,6 +113,11 @@ class LayerNorm(nn.Module):
         std = torch.std(x, -1).unsqueeze(-1) # (B, S, 1)
         x_norm = (x - mean)/(std + self.eps) * self.gamma + self.beta
         return x_norm
+    
+def create_attention_mask(shape):
+    mask = torch.triu(torch.ones(shape), 1)
+    mask = torch.where(mask == 0, 0, -10000)
+    return mask
 
 class Attention(nn.Module):
     def __init__(self,
@@ -166,7 +171,7 @@ class Attention(nn.Module):
         M = torch.bmm(q, k.mT)/math.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
 
         # Mask should only be used for decoder 
-        if mask: # mask of shape (S, S)
+        if mask != None: # mask of shape (S, S)
             M += mask
         weights = F.softmax(M, -1)
 
@@ -176,7 +181,7 @@ class Attention(nn.Module):
  
     def forward(self, query, key, value, mask=None):
 
-        q = self.Q(query)
+        q = self.Q(query) # M is not symmetric because of this...even when query=key=value
         k = self.K(key)
         v = self.V(value) # shape B, S, h_dim*n_heads
 
