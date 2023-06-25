@@ -14,26 +14,50 @@ class Transformer(nn.Module):
                  N_decoders):
         super().__init__()
 
-        copy_mod = copy.deepcopy
-
-        attention = Attention(d_model)
-        feedforward = PositionwiseFFN(d_model, h_dim)
-        norm = LayerNorm(d_model)
-
         self.embedding = Embedding(vocab_size, d_model)
 
         self.encoder = nn.Sequential([
-            EncoderBlock(feedforward, attention, norm) for i in range(N_encoders)
+            EncoderBlock(PositionwiseFFN(d_model, h_dim), 
+                         Attention(d_model), 
+                         PositionwiseFFN(d_model, h_dim)) for i in range(N_encoders)
         ])
 
         self.decoder = nn.Sequential([
-            DecoderBlock(feedforward, attention, norm) for i in range(N_decoders)
+            DecoderBlock(PositionwiseFFN(d_model, h_dim),
+                         Attention(d_model),
+                         PositionwiseFFN(d_model, h_dim),) for i in range(N_decoders)
         ])
 
         self.LM_head = LM_head(d_model, vocab_size)
 
+    def encode(self, x):
+        pass
+
+    def decode(self, x):
+        pass
+
     def forward(self, x):
         pass
+
+class Encoder(nn.Module):
+    def __init__(self, 
+                 N_encoders,
+                 embedding,
+                 pe,
+                 encoder
+                 ):
+        super().__init__()
+
+        ## Embedding 
+        ## pos encoding 
+        ## Encoder -> z 
+
+        self.embed = embedding
+        self.pe = pe 
+
+
+        self.encoder = encoder
+
 
 
 class LM_head(nn.Module):
@@ -52,14 +76,15 @@ class LM_head(nn.Module):
 
 class EncoderBlock(nn.Module):
     def __init__(self,
-                 feedforward,
-                 attention,
-                 norm):
+                 d_model,
+                 h_dim,
+                 seq_len,
+                 n_heads):
         super().__init__()
 
-        self.feedforward = feedforward
-        self.attention = attention
-        self.norm = norm 
+        self.feedforward = PositionwiseFFN(d_model, h_dim)
+        self.attention = Attention(seq_len, d_model, n_heads)
+        self.norm = LayerNorm(d_model) 
     
     def forward(self, x):
 
@@ -73,15 +98,16 @@ class EncoderBlock(nn.Module):
 
 class DecoderBlock(nn.Module):
     def __init__(self,
-                 feedforward,
-                 attention,
-                 norm,
+                 d_model,
+                 h_dim,
+                 n_heads,
+                 seq_len,
                  mask = None):
         super().__init__()
 
-        self.feedforward = feedforward
-        self.attention = attention
-        self.norm = norm
+        self.feedforward = PositionwiseFFN(d_model, h_dim)
+        self.attention = Attention(seq_len, d_model, n_heads)
+        self.norm = LayerNorm(d_model)
         self.mask = mask 
 
     def forward(self, x, z):
@@ -121,13 +147,11 @@ def create_attention_mask(shape):
 
 class Attention(nn.Module):
     def __init__(self,
-                 batch_size,
                  seq_len,
                  d_model, 
                  n_heads):
         super().__init__()
 
-        self.batch_size = batch_size
         self.seq_len = seq_len # max seq. length
         self.d_model = d_model
         self.n_heads = n_heads
