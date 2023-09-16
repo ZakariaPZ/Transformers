@@ -247,18 +247,25 @@ class Embedding(nn.Module):
     
 
 class PositionalEmbedding(nn.Module):
+    '''
+    PE_(pos, 2i) = sin(pos/10000^(2i/d_model))
+    PE_(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+    '''
     def __init__(self,
-                 d_model):
+                 d_model,
+                 max_positions=5000):
         super().__init__()
 
-        self.pos_encodings = torch.zeros(5000, d_model)
-        positions = torch.arange(5000).unsqueeze(-1)
+        self.pos_encodings = torch.zeros(max_positions, d_model)
+        positions = torch.arange(max_positions).unsqueeze(-1)
 
         # Use log for numerical stability
         denom = torch.exp(math.log(10000) * (torch.arange(0, d_model, 2) / d_model)).unsqueeze(0) 
 
         self.pos_encodings[:, ::2] = torch.sin(positions/denom) # multiplication better?
         self.pos_encodings[:, 1::2] = torch.cos(positions/denom)
+
+        self.pos_encodings.requires_grad = False
 
     def forward(self, x):
         x = x + self.pos_encodings[:x.size()[1], :] # requires grad false? 
