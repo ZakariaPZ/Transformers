@@ -39,25 +39,31 @@ class Transformer(nn.Module):
     def forward(self, x):
         pass
 
+
 class Encoder(nn.Module):
     def __init__(self, 
                  N_encoders,
-                 embedding,
-                 pe,
-                 encoder
-                 ):
+                 d_model,
+                 vocab_size,
+                 h_dim,
+                 seq_len,
+                 n_heads):
         super().__init__()
 
-        ## Embedding 
-        ## pos encoding 
-        ## Encoder -> z 
+        self.embed = Embedding(vocab_size, d_model)
+        self.pe = PositionalEmbedding(d_model)
+        self.encoder = nn.ModuleList([
+                EncoderBlock(d_model, h_dim, seq_len, n_heads) for _ in range(N_encoders)
+            ])
 
-        self.embed = embedding
-        self.pe = pe 
+    def forward(self, x):
+        x = self.embed(x)
+        x = self.pe(x)
 
+        for layer in self.encoder:
+            x = layer(x)
 
-        self.encoder = encoder
-
+        return x
 
 
 class LM_head(nn.Module):
@@ -82,9 +88,9 @@ class EncoderBlock(nn.Module):
                  n_heads):
         super().__init__()
 
-        self.feedforward = PositionwiseFFN(d_model, h_dim)
         self.attention = Attention(seq_len, d_model, n_heads)
         self.norm = LayerNorm(d_model) 
+        self.feedforward = PositionwiseFFN(d_model, h_dim)
     
     def forward(self, x):
 
@@ -95,6 +101,7 @@ class EncoderBlock(nn.Module):
         x = self.norm(x + self.feedforward(x))
 
         return x
+
 
 class DecoderBlock(nn.Module):
     def __init__(self,
@@ -123,7 +130,7 @@ class DecoderBlock(nn.Module):
 
         return x
     
-        
+
 class LayerNorm(nn.Module):
     def __init__(self,
                  d_model,
@@ -144,6 +151,7 @@ def create_attention_mask(shape):
     mask = torch.triu(torch.ones(shape), 1)
     mask = torch.where(mask == 0, 0, -10000)
     return mask
+
 
 class Attention(nn.Module):
     def __init__(self,
@@ -168,7 +176,6 @@ class Attention(nn.Module):
         n_batches = x.shape[0]
         seq_len = x.shape[1]
         h_dim = int(self.d_model/self.n_heads)
-
 
         x = x.contiguous().view(n_batches, seq_len, self.n_heads, h_dim)
         x = x.permute(0, 2, 1, 3)
@@ -200,11 +207,16 @@ class Attention(nn.Module):
         weights = F.softmax(M, -1)
 
         x_att = torch.bmm(weights, v) # (B*n_heads, S, S) x (B*n_heads, S, h_dim) = (B*n_heads, S, h_dim)
-    
+
         return x_att
  
     def forward(self, query, key, value, mask=None):
-
+        '''
+        query, key and value have no context before reaching the first
+        attention layer. x_att contains elements which are a linear combination 
+        of each element in the original sequence. Their new values reflect 
+        '''
+        # For each batch, q, k, v can be computed in parallel)
         q = self.Q(query) # M is not symmetric because of this...even when query=key=value
         k = self.K(key)
         v = self.V(value) # shape B, S, h_dim*n_heads
