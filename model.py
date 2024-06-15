@@ -3,8 +3,6 @@ from torch import nn
 import torch.nn.functional as F
 import math
 
-import copy
-
 class Transformer(nn.Module):
     def __init__(self,
                  d_model,
@@ -15,6 +13,7 @@ class Transformer(nn.Module):
         super().__init__()
 
         self.embedding = Embedding(vocab_size, d_model)
+        self.positional_embedding = PositionalEmbedding(d_model) 
 
         self.encoder = nn.Sequential([
             EncoderBlock(PositionwiseFFN(d_model, h_dim), 
@@ -30,15 +29,34 @@ class Transformer(nn.Module):
 
         self.LM_head = LM_head(d_model, vocab_size)
 
-    def encode(self, x):
-        pass
+    def embed(self, x):
+        return self.positional_embedding(self.embedding(x))
 
-    def decode(self, x):
-        pass
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, x, z, mask):
+        return self.decoder(x, z, mask)
+
+    def forward(self, x, mask):
+        x = self.embed(x)
+        out = self.decode(x, self.encode(x), mask)
+        return self.LM_head(out)
+
+
+class LM_head(nn.Module):
+    def __init__(self,
+                 d_model,
+                 vocab_size):
+        super().__init__()
+        
+        self.linear = nn.Linear(d_model, vocab_size)
 
     def forward(self, x):
-        pass
-
+        logits = self.linear(x)
+        out = F.softmax(logits, -1) 
+        return out          
+    
 
 class Encoder(nn.Module):
     def __init__(self, 
@@ -57,27 +75,13 @@ class Encoder(nn.Module):
             ])
 
     def forward(self, x):
-        x = self.embed(x)
-        x = self.pe(x)
+        z = self.embed(x)
+        z = self.pe(z)
 
         for layer in self.encoder:
-            x = layer(x)
+            z = layer(z)
 
-        return x
-
-
-class LM_head(nn.Module):
-    def __init__(self,
-                 d_model,
-                 vocab_size):
-        super().__init__()
-        
-        self.linear = nn.Linear(d_model, vocab_size)
-
-    def forward(self, x):
-        logits = self.linear(x)
-        out = F.softmax(logits, -1) 
-        return out          
+        return z
     
 
 class EncoderBlock(nn.Module):
@@ -103,27 +107,51 @@ class EncoderBlock(nn.Module):
         return x
 
 
+class Decoder(nn.Module):
+    def __init__(self, 
+                 N_decoders,
+                 d_model,
+                 vocab_size,
+                 h_dim,
+                 seq_len,
+                 n_heads):
+        super().__init__()
+
+        self.embed = Embedding(vocab_size, d_model)
+        self.pe = PositionalEmbedding(d_model)
+        self.decoder = nn.ModuleList([
+                DecoderBlock(d_model, h_dim, seq_len, n_heads) for _ in range(N_decoders)
+            ])
+
+    def forward(self, x, z, mask):
+        x = self.embed(x)
+        x = self.pe(x)
+
+        for layer in self.decoder:
+            x = layer(x, z, mask)
+
+        return x
+
+
 class DecoderBlock(nn.Module):
     def __init__(self,
                  d_model,
                  h_dim,
                  n_heads,
-                 seq_len,
-                 mask = None):
+                 seq_len):
         super().__init__()
 
         self.feedforward = PositionwiseFFN(d_model, h_dim)
         self.attention = Attention(seq_len, d_model, n_heads)
         self.norm = LayerNorm(d_model)
-        self.mask = mask 
 
-    def forward(self, x, z):
+    def forward(self, x, z, mask):
 
         # Apply self-attention
-        x = self.norm(x + self.attention(x, x, x, self.mask))
+        x = self.norm(x + self.attention(x, x, x, mask))
 
         # Apply cross-attention
-        x = self.norm(x + self.attention(x, z, z, self.mask))
+        x = self.norm(x + self.attention(x, z, z, mask))
 
         # Apply FF layer
         x = self.norm(x + self.feedforward(x))
