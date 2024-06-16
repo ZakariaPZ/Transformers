@@ -215,8 +215,10 @@ class Attention(nn.Module):
         '''
         n_batches = X.shape[0]
         seq_len = X.shape[1]
-        h_dim = int(self.d_model/self.n_heads)
+        h_dim = int(self.d_model / self.n_heads)
 
+        # Combine batches and heads into one dimension, since each head
+        # is independent of the rest and can be computed in parallel
         X = X.contiguous().view(n_batches, seq_len, self.n_heads, h_dim)
         X = X.permute(0, 2, 1, 3)
         X = X.contiguous().view(n_batches*self.n_heads, seq_len, h_dim)
@@ -224,15 +226,13 @@ class Attention(nn.Module):
         return X
 
     def undo_reshape_for_mh(self, X):
-        n_batches = int(x.shape[0]/self.n_heads)
+        n_batches = int(X.shape[0]/self.n_heads)
         seq_len = X.shape[1]
         h_dim = int(self.d_model/self.n_heads)
 
+        # Split the heads back into separate dimensions from the batches
         X = X.contiguous().view(n_batches, self.n_heads, seq_len, h_dim)
-
         X = X.permute(0, 2, 1, 3)
-
-        # batch size, sequence length, h_dim * n_heads = batch size, sequence length, d_model 
         X = X.contiguous().view(n_batches, seq_len, self.n_heads*h_dim) 
 
         return X
@@ -243,6 +243,7 @@ class Attention(nn.Module):
 
         X_att = SoftMax(Q * K^T / sqrt(d_k)) * V
         '''
+
         d_k = K.shape[-1]
 
         M = torch.bmm(Q, K.mT)/math.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
@@ -262,11 +263,13 @@ class Attention(nn.Module):
         attention layer. x_att contains elements which are a linear combination 
         of each element in the original sequence. Their new values reflect 
         '''
-        # For each batch, Q, K, V can be computed in parallel
-        Q = self.Wq(query) # M is not symmetric because of this...even when query=key=value
-        K = self.Wk(key)
-        V = self.Wv(value) # shape B, S, h_dim*n_heads
 
+        # shape (batch_size, sequence_length, h_dim * n_heads) 
+        Q = self.Wq(query)
+        K = self.Wk(key)
+        V = self.Wv(value) 
+
+        # shape (batch_size * n_heads, sequence_length, h_dim) 
         Q = self.reshape_for_mh(Q)
         K =  self.reshape_for_mh(K)
         V = self.reshape_for_mh(V) # shape B*n_heads, S, h_dim
