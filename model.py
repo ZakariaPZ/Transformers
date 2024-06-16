@@ -3,6 +3,9 @@ from torch import nn
 import torch.nn.functional as F
 import math
 
+from attention import Attention
+from layers import Embedding, PositionalEmbedding, PositionwiseFFN, LayerNorm, LM_head
+
 class Transformer(nn.Module):
     def __init__(self,
                  d_model,
@@ -41,21 +44,7 @@ class Transformer(nn.Module):
     def forward(self, x, mask):
         x = self.embed(x)
         out = self.decode(x, self.encode(x), mask)
-        return self.LM_head(out)
-
-
-class LM_head(nn.Module):
-    def __init__(self,
-                 d_model,
-                 vocab_size):
-        super().__init__()
-        
-        self.linear = nn.Linear(d_model, vocab_size)
-
-    def forward(self, x):
-        logits = self.linear(x)
-        out = F.softmax(logits, -1) 
-        return out          
+        return self.LM_head(out)   
     
 
 class Encoder(nn.Module):
@@ -156,187 +145,4 @@ class DecoderBlock(nn.Module):
         # Apply FF layer
         x = self.norm(x + self.feedforward(x))
 
-        return x
-    
-
-class LayerNorm(nn.Module):
-    def __init__(self,
-                 d_model,
-                 eps=1e-5): # What is the default in the transformer paper?
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(d_model))
-        self.beta = nn.Parameter(torch.zeros(d_model))
-        self.eps = eps
-
-    def forward(self, x):
-        # x is (B, S, d_model)
-        mean = torch.mean(x, -1).unsqueeze(-1) # (B, S, 1)
-        std = torch.std(x, -1).unsqueeze(-1) # (B, S, 1)
-        x_norm = (x - mean)/(std + self.eps) * self.gamma + self.beta
-        return x_norm
-    
-def create_attention_mask(shape):
-    mask = torch.triu(torch.ones(shape), 1)
-    mask = torch.where(mask == 0, 0, -10000)
-    return mask
-
-
-class Attention(nn.Module):
-    def __init__(self,
-                 seq_len,
-                 d_model, 
-                 n_heads):
-        super().__init__()
-
-        # max seq. length
-        self.seq_len = seq_len 
-
-        self.d_model = d_model
-        self.n_heads = n_heads
-
-        assert d_model%n_heads == 0, 'Embedding dimension d_model must divide evenly into n_heads'
-
-        # Each head has dimension d = d_model/n_heads, so that the output
-        # of the attention layer is of the same dimension as the input
-        h_dim = int(d_model/n_heads)
-
-        # the input X is of shape (batch_size, sequence_length, d_model), and is
-        # projected to Q, K, V of shape (batch_size, sequence_length, h_dim * n_heads)
-        # e.g. When computing the queries, Q = X * Wq:
-        # (batch_size, sequence_length, d_model) = (batch_size, sequence_length, d_model) * (d_model, d_model),
-        # where d_model = h_dim * n_heads
-        self.Wq = nn.Linear(d_model, h_dim*n_heads) 
-        self.Wk = nn.Linear(d_model, h_dim*n_heads)
-        self.Wv = nn.Linear(d_model, h_dim*n_heads)
-    
-    def reshape_for_mh(self, X):
-        '''
-        When computing multi-head attention, ... # TODO
-        '''
-        n_batches = X.shape[0]
-        seq_len = X.shape[1]
-        h_dim = int(self.d_model / self.n_heads)
-
-        # Combine batches and heads into one dimension, since each head
-        # is independent of the rest and can be computed in parallel
-        X = X.contiguous().view(n_batches, seq_len, self.n_heads, h_dim)
-        X = X.permute(0, 2, 1, 3)
-        X = X.contiguous().view(n_batches*self.n_heads, seq_len, h_dim)
-
-        return X
-
-    def undo_reshape_for_mh(self, X):
-        n_batches = int(X.shape[0]/self.n_heads)
-        seq_len = X.shape[1]
-        h_dim = int(self.d_model/self.n_heads)
-
-        # Split the heads back into separate dimensions from the batches
-        X = X.contiguous().view(n_batches, self.n_heads, seq_len, h_dim)
-        X = X.permute(0, 2, 1, 3)
-        X = X.contiguous().view(n_batches, seq_len, self.n_heads*h_dim) 
-
-        return X
-
-    def compute_attention(self, Q, K, V, mask):
-        '''
-        Implements the scaled dot-product attention mechanism. 
-
-        X_att = SoftMax(Q * K^T / sqrt(d_k)) * V
-        '''
-
-        # Scaling factor d_k 
-        d_k = K.shape[-1]
-
-        # Argument for SoftMax, Q * K^T / sqrt(d_k)
-        # (batch_size * n_heads, sequence_length, h_dim) * (batch_size * n_heads, h_dim, sequence_length) = (batch_size * n_heads, sequence_length, sequence_length)
-        M = torch.bmm(Q, K.mT)/math.sqrt(d_k) 
-
-        # Causal mask should only be used for decoder to prevent the model 
-        # from attending to future tokens. Shape (sequence_length, sequence_length).
-        if mask != None: 
-            M += mask
-        weights = F.softmax(M, -1)
-
-        # Compute the output of the attention layer, 
-        # shape (batch_size * n_heads, sequence_length, sequence_length) * (batch_size * n_heads, sequence_length, h_dim) = (batch_size * n_heads, sequence_length, h_dim)
-        x_att = torch.bmm(weights, V)
-
-        return x_att
- 
-    def forward(self, query, key, value, mask=None):
-        '''
-        query, key and value have no context before reaching the first
-        attention layer. x_att contains elements which are a linear combination 
-        of each element in the original sequence. Their new values reflect 
-        '''
-
-        # shape (batch_size, sequence_length, h_dim * n_heads) 
-        Q = self.Wq(query)
-        K = self.Wk(key)
-        V = self.Wv(value) 
-
-        # shape (batch_size * n_heads, sequence_length, h_dim) 
-        Q = self.reshape_for_mh(Q)
-        K =  self.reshape_for_mh(K)
-        V = self.reshape_for_mh(V)
-
-        # Shape (batch_size * n_heads, sequence_length, h_dim)
-        X_att = self.compute_attention(Q, K, V, mask)
-
-        # Shape (batch_size, sequence_length, h_dim * n_heads) 
-        X_att = self.undo_reshape_for_mh(X_att) 
-
-        return X_att
-
-
-class PositionwiseFFN(nn.Module):
-    def __init__(self,
-                 d_model,
-                 h_dim) -> None:
-        super().__init__()
-        self.feedforward_in = nn.Linear(d_model, h_dim)
-        self.feedforward_out = nn.Linear(h_dim, d_model)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        h = self.relu(self.feedforward_in(x))
-        z = self.feedforward_out(h)
-        return z
-
-
-class Embedding(nn.Module):
-    def __init__(self,
-                 vocab_size,
-                 d_model):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, d_model)
-
-    def forward(self, x):
-        embeds = self.embedding(x)
-        return embeds
-    
-
-class PositionalEmbedding(nn.Module):
-    '''
-    PE_(pos, 2i) = sin(pos/10000^(2i/d_model))
-    PE_(pos, 2i+1) = cos(pos/10000^(2i/d_model))
-    '''
-    def __init__(self,
-                 d_model,
-                 max_positions=5000):
-        super().__init__()
-
-        self.pos_encodings = torch.zeros(max_positions, d_model)
-        positions = torch.arange(max_positions).unsqueeze(-1)
-
-        # Use log for numerical stability
-        denom = torch.exp(math.log(10000) * (torch.arange(0, d_model, 2) / d_model)).unsqueeze(0) 
-
-        self.pos_encodings[:, ::2] = torch.sin(positions/denom) # multiplication better?
-        self.pos_encodings[:, 1::2] = torch.cos(positions/denom)
-
-        self.pos_encodings.requires_grad = False
-
-    def forward(self, x):
-        x = x + self.pos_encodings[:x.size()[1], :] # requires grad false? 
         return x
