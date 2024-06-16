@@ -87,9 +87,9 @@ class Attention(nn.Module):
 
         # Compute the output of the attention layer, 
         # shape (batch_size * n_heads, sequence_length, sequence_length) * (batch_size * n_heads, sequence_length, h_dim) = (batch_size * n_heads, sequence_length, h_dim)
-        x_att = torch.bmm(weights, V)
+        X_att = torch.bmm(weights, V)
 
-        return x_att
+        return X_att
  
     def forward(self, query, key, value, mask=None):
         '''
