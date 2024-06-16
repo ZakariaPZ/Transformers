@@ -244,16 +244,22 @@ class Attention(nn.Module):
         X_att = SoftMax(Q * K^T / sqrt(d_k)) * V
         '''
 
+        # Scaling factor d_k 
         d_k = K.shape[-1]
 
-        M = torch.bmm(Q, K.mT)/math.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
+        # Argument for SoftMax, Q * K^T / sqrt(d_k)
+        # (batch_size * n_heads, sequence_length, h_dim) * (batch_size * n_heads, h_dim, sequence_length) = (batch_size * n_heads, sequence_length, sequence_length)
+        M = torch.bmm(Q, K.mT)/math.sqrt(d_k) 
 
-        # Mask should only be used for decoder 
-        if mask != None: # mask of shape (S, S)
+        # Causal mask should only be used for decoder to prevent the model 
+        # from attending to future tokens. Shape (sequence_length, sequence_length).
+        if mask != None: 
             M += mask
         weights = F.softmax(M, -1)
 
-        x_att = torch.bmm(weights, V) # (B*n_heads, S, S) x (B*n_heads, S, h_dim) = (B*n_heads, S, h_dim)
+        # Compute the output of the attention layer, 
+        # shape (batch_size * n_heads, sequence_length, sequence_length) * (batch_size * n_heads, sequence_length, h_dim) = (batch_size * n_heads, sequence_length, h_dim)
+        x_att = torch.bmm(weights, V)
 
         return x_att
  
