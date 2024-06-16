@@ -188,53 +188,67 @@ class Attention(nn.Module):
                  n_heads):
         super().__init__()
 
-        self.seq_len = seq_len # max seq. length
+        # max seq. length
+        self.seq_len = seq_len 
+
         self.d_model = d_model
         self.n_heads = n_heads
-        
+
         assert d_model%n_heads == 0, 'Embedding dimension d_model must divide evenly into n_heads'
-        
+
+        # Each head has dimension d = d_model/n_heads, so that the output
+        # of the attention layer is of the same dimension as the input
         h_dim = int(d_model/n_heads)
 
-        self.Q = nn.Linear(d_model, h_dim*n_heads) # input of size (B, S, d_model)
+        # input of size (batch size, sequence length, d_model)
+        self.Q = nn.Linear(d_model, h_dim*n_heads) 
         self.K = nn.Linear(d_model, h_dim*n_heads)
         self.V = nn.Linear(d_model, h_dim*n_heads)
     
-    def reshape_for_mh(self, x):
-        n_batches = x.shape[0]
-        seq_len = x.shape[1]
+    def reshape_for_mh(self, X):
+        '''
+        When computing multi-head attention, ... # TODO
+        '''
+        n_batches = X.shape[0]
+        seq_len = X.shape[1]
         h_dim = int(self.d_model/self.n_heads)
 
-        x = x.contiguous().view(n_batches, seq_len, self.n_heads, h_dim)
-        x = x.permute(0, 2, 1, 3)
-        x = x.contiguous().view(n_batches*self.n_heads, seq_len, h_dim)
+        X = X.contiguous().view(n_batches, seq_len, self.n_heads, h_dim)
+        X = X.permute(0, 2, 1, 3)
+        X = X.contiguous().view(n_batches*self.n_heads, seq_len, h_dim)
 
-        return x
+        return X
 
-    def undo_reshape_for_mh(self, x):
+    def undo_reshape_for_mh(self, X):
         n_batches = int(x.shape[0]/self.n_heads)
-        seq_len = x.shape[1]
+        seq_len = X.shape[1]
         h_dim = int(self.d_model/self.n_heads)
 
-        x = x.contiguous().view(n_batches, self.n_heads, seq_len, h_dim)
+        X = X.contiguous().view(n_batches, self.n_heads, seq_len, h_dim)
 
-        x = x.permute(0, 2, 1, 3)
-        x = x.contiguous().view(n_batches, seq_len, self.n_heads*h_dim) # B, S, h_dim * n_heads = B, S, d_model 
+        X = X.permute(0, 2, 1, 3)
 
-        return x
+        # batch size, sequence length, h_dim * n_heads = batch size, sequence length, d_model 
+        X = X.contiguous().view(n_batches, seq_len, self.n_heads*h_dim) 
 
-    def compute_attention(self, q, k, v, mask):
-        # Implment softmax(QK^T/sqrt(d_k))V
-        d_k = k.shape[-1]
+        return X
 
-        M = torch.bmm(q, k.mT)/math.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
+    def compute_attention(self, Q, K, V, mask):
+        '''
+        Implements the scaled dot-product attention mechanism. 
+
+        X_att = SoftMax(Q * K^T / sqrt(d_k)) * V
+        '''
+        d_k = K.shape[-1]
+
+        M = torch.bmm(Q, K.mT)/math.sqrt(d_k) # (B*n_heads, S, h_dim) x (B*n_heads, h_dim, S) = (B*n_heads, S, S)
 
         # Mask should only be used for decoder 
         if mask != None: # mask of shape (S, S)
             M += mask
         weights = F.softmax(M, -1)
 
-        x_att = torch.bmm(weights, v) # (B*n_heads, S, S) x (B*n_heads, S, h_dim) = (B*n_heads, S, h_dim)
+        x_att = torch.bmm(weights, V) # (B*n_heads, S, S) x (B*n_heads, S, h_dim) = (B*n_heads, S, h_dim)
 
         return x_att
  
@@ -244,19 +258,19 @@ class Attention(nn.Module):
         attention layer. x_att contains elements which are a linear combination 
         of each element in the original sequence. Their new values reflect 
         '''
-        # For each batch, q, k, v can be computed in parallel)
-        q = self.Q(query) # M is not symmetric because of this...even when query=key=value
-        k = self.K(key)
-        v = self.V(value) # shape B, S, h_dim*n_heads
+        # For each batch, Q, K, V can be computed in parallel
+        Q = self.Q(query) # M is not symmetric because of this...even when query=key=value
+        K = self.K(key)
+        V = self.V(value) # shape B, S, h_dim*n_heads
 
-        q = self.reshape_for_mh(q)
-        k =  self.reshape_for_mh(k)
-        v = self.reshape_for_mh(v) # shape B*n_heads, S, h_dim
+        Q = self.reshape_for_mh(Q)
+        K =  self.reshape_for_mh(K)
+        V = self.reshape_for_mh(V) # shape B*n_heads, S, h_dim
 
-        x_att = self.compute_attention(q, k, v, mask) # shape B*n_heads, S, h_dim
-        x_att = self.undo_reshape_for_mh(x_att) # shape B, S, h_dim*n_heads
+        X_att = self.compute_attention(Q, K, V, mask) # shape B*n_heads, S, h_dim
+        X_att = self.undo_reshape_for_mh(X_att) # shape B, S, h_dim*n_heads
 
-        return x_att
+        return X_att
 
 
 class PositionwiseFFN(nn.Module):
@@ -275,7 +289,7 @@ class PositionwiseFFN(nn.Module):
 
 
 class Embedding(nn.Module):
-    def __init__(self, 
+    def __init__(self,
                  vocab_size,
                  d_model):
         super().__init__()
