@@ -200,10 +200,14 @@ class Attention(nn.Module):
         # of the attention layer is of the same dimension as the input
         h_dim = int(d_model/n_heads)
 
-        # input of size (batch size, sequence length, d_model)
-        self.Q = nn.Linear(d_model, h_dim*n_heads) 
-        self.K = nn.Linear(d_model, h_dim*n_heads)
-        self.V = nn.Linear(d_model, h_dim*n_heads)
+        # the input X is of shape (batch_size, sequence_length, d_model), and is
+        # projected to Q, K, V of shape (batch_size, sequence_length, h_dim * n_heads)
+        # e.g. When computing the queries, Q = X * Wq:
+        # (batch_size, sequence_length, d_model) = (batch_size, sequence_length, d_model) * (d_model, d_model),
+        # where d_model = h_dim * n_heads
+        self.Wq = nn.Linear(d_model, h_dim*n_heads) 
+        self.Wk = nn.Linear(d_model, h_dim*n_heads)
+        self.Wv = nn.Linear(d_model, h_dim*n_heads)
     
     def reshape_for_mh(self, X):
         '''
@@ -259,9 +263,9 @@ class Attention(nn.Module):
         of each element in the original sequence. Their new values reflect 
         '''
         # For each batch, Q, K, V can be computed in parallel
-        Q = self.Q(query) # M is not symmetric because of this...even when query=key=value
-        K = self.K(key)
-        V = self.V(value) # shape B, S, h_dim*n_heads
+        Q = self.Wq(query) # M is not symmetric because of this...even when query=key=value
+        K = self.Wk(key)
+        V = self.Wv(value) # shape B, S, h_dim*n_heads
 
         Q = self.reshape_for_mh(Q)
         K =  self.reshape_for_mh(K)
