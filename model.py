@@ -278,10 +278,13 @@ class Attention(nn.Module):
         # shape (batch_size * n_heads, sequence_length, h_dim) 
         Q = self.reshape_for_mh(Q)
         K =  self.reshape_for_mh(K)
-        V = self.reshape_for_mh(V) # shape B*n_heads, S, h_dim
+        V = self.reshape_for_mh(V)
 
-        X_att = self.compute_attention(Q, K, V, mask) # shape B*n_heads, S, h_dim
-        X_att = self.undo_reshape_for_mh(X_att) # shape B, S, h_dim*n_heads
+        # Shape (batch_size * n_heads, sequence_length, h_dim)
+        X_att = self.compute_attention(Q, K, V, mask)
+
+        # Shape (batch_size, sequence_length, h_dim * n_heads) 
+        X_att = self.undo_reshape_for_mh(X_att) 
 
         return X_att
 
